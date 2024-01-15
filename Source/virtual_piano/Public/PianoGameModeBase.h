@@ -27,7 +27,7 @@ public:
 	cv::VideoCapture capture;
 	cv::Mat bgraImage;
 	cv::Mat image;
-	NanoDet nanodet = NanoDet(320, 0.35, 0.4);
+	NanoDet nanodet = NanoDet(320, 0.45, 0.3);
 
 	UFUNCTION(BlueprintCallable)
 	void ReadFrame();

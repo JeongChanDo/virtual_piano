@@ -27,7 +27,7 @@ NanoDet::NanoDet(int input_shape, float confThreshold, float nmsThreshold)
 	this->num_class = 1;
 	if (input_shape == 320)
 	{
-		this->net = readNet("c:/nanodet_finger_v3_sim.onnx");
+		this->net = readNet("c:/nanodet_finger_v4_048_sim.onnx");
 		//this->net = readNet("nanodet_finger_v3_sim_fp16.onnx");
 
 	}
@@ -134,6 +134,33 @@ void NanoDet::detect(Mat& srcimg)
 	this->post_process(outs, srcimg, newh, neww, top, left);
 }
 
+void NanoDet::detect(Mat& srcimg, std::vector<Bbox>& bboxes)
+{
+	int newh = 0, neww = 0, top = 0, left = 0;
+	Mat dstimg = this->resize_image(srcimg, &newh, &neww, &top, &left);
+	this->normalize(dstimg);
+	Mat blob = blobFromImage(dstimg);
+
+	this->net.setInput(blob);
+	std::vector<Mat> outs;
+	this->net.forward(outs, this->net.getUnconnectedOutLayersNames());
+	/*
+	cout << outs[0].reshape(1, outs[0].size[1]).rowRange(0, 10) << endl << endl;
+
+	for (int i = 0; i < 6; i++)
+	{
+		cout << this->net.getUnconnectedOutLayersNames()[i] << endl;
+		cout << outs[i].size() << outs[i].size[0] << " x " << outs[i].size[1] << " x " << outs[i].size[2] << endl;
+
+		cout << outs[i].reshape(1, outs[i].size[1]).size() << endl;
+		cout << outs[i].reshape(1, outs[i].size[1]).rowRange(0, 1) << endl << endl;
+	}
+	*/
+
+	this->post_process(outs, srcimg, newh, neww, top, left, bboxes);
+}
+
+
 void NanoDet::softmax(float* x, int length)
 {
 	float sum = 0;
@@ -205,6 +232,7 @@ void NanoDet::generate_proposal(std::vector<int>& classIds, std::vector<float>& 
 	}
 }
 
+
 void NanoDet::post_process(std::vector<Mat> outs, Mat& frame, int newh, int neww, int top, int left)
 {
 	/////generate proposals
@@ -245,6 +273,54 @@ void NanoDet::post_process(std::vector<Mat> outs, Mat& frame, int newh, int neww
 		putText(frame, label, Point(xmin, ymin), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0, 255, 0), 1);
 	}
 }
+
+void NanoDet::post_process(std::vector<Mat> outs, Mat& frame, int newh, int neww, int top, int left, std::vector<Bbox>& bboxes)
+{
+	/////generate proposals
+	std::vector<int> classIds;
+	std::vector<float> confidences;
+	std::vector<cv::Rect> boxes;
+	this->generate_proposal(classIds, confidences, boxes, this->stride[0], outs[0], outs[1]);
+	this->generate_proposal(classIds, confidences, boxes, this->stride[1], outs[2], outs[3]);
+	this->generate_proposal(classIds, confidences, boxes, this->stride[2], outs[4], outs[5]);
+
+
+
+	// Perform non maximum suppression to eliminate redundant overlapping boxes with
+	// lower confidences
+	std::vector<int> indices;
+	NMSBoxes(boxes, confidences, this->prob_threshold, this->iou_threshold, indices);
+
+	float ratioh = (float)frame.rows / newh;
+	float ratiow = (float)frame.cols / neww;
+	for (size_t i = 0; i < indices.size(); ++i)
+	{
+		int idx = indices[i];
+		cv::Rect box = boxes[idx];
+		int xmin = (int)max((box.x - left) * ratiow, 0.f);
+		int ymin = (int)max((box.y - top) * ratioh, 0.f);
+		int xmax = (int)min((box.x - left + box.width) * ratiow, (float)frame.cols);
+		int ymax = (int)min((box.y - top + box.height) * ratioh, (float)frame.rows);
+		cv::Rect rect = cv::Rect(xmin, ymin, xmax-xmin, ymax-ymin);
+		//rectangle(frame, Point(xmin, ymin), Point(xmax, ymax), Scalar(0, 0, 255), 3);
+		Bbox bbox;
+		bbox.score = confidences[idx];
+		bbox.rect = rect;
+		bboxes.emplace_back(bbox);
+
+		/*
+		//Get the label for the class name and its confidence
+		string label = cv::format("%.2f", confidences[idx]);
+		//Display the label at the top of the bounding box
+		int baseLine;
+		Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+		ymin = max(ymin, labelSize.height);
+		//rectangle(frame, Point(left, top - int(1.5 * labelSize.height)), Point(left + int(1.5 * labelSize.width), top + baseLine), Scalar(0, 255, 0), FILLED);
+		putText(frame, label, Point(xmin, ymin), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0, 255, 0), 1);
+		*/
+	}
+}
+
 
 std::vector<cv::Rect> NanoDet::get_color_filtered_boxes(cv::Mat image, cv::Mat& skin_image) {
 	cv::Mat hsv_image;

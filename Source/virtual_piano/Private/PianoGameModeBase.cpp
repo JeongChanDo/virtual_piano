@@ -48,13 +48,31 @@ void APianoGameModeBase::Inference()
 
 	cv::Mat skin_image;
 	std::vector<cv::Rect> color_boxes = nanodet.get_color_filtered_boxes(image, skin_image);
-	nanodet.detect(skin_image);
+	std::vector<NanoDet::Bbox> bboxes;
+	//nanodet.detect(image, bboxes);
+	//nanodet.detect(skin_image);
+	nanodet.detect(image, bboxes);
 
-	image = skin_image;
+	for (auto const bbox : bboxes)
+	{
+
+		cv::rectangle(skin_image, Point(bbox.rect.x, bbox.rect.y), Point(bbox.rect.x + bbox.rect.width, bbox.rect.y + bbox.rect.height), Scalar(0, 0, 255), 3);
+		
+		string label = cv::format("%.2f", bbox.score);
+		int baseLine;
+		Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+		int ymin = max(bbox.rect.y, labelSize.height);
+		putText(skin_image, label, Point(bbox.rect.x, ymin), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0, 255, 0), 1);
+
+	}
+
+
+
     auto time_end = std::chrono::steady_clock::now();
     auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count();
     std::string time_spent = "Time spent: " + std::to_string(time_diff) + "ms";
-    cv::putText(image, time_spent, cv::Point(0, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+    cv::putText(skin_image, time_spent, cv::Point(0, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+	image = skin_image;
 }
 
 
