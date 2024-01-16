@@ -35,6 +35,8 @@ NanoDet::NanoDet(int input_shape, float confThreshold, float nmsThreshold)
 	{
 		this->net = readNet("c:/nanodet_finger_v3_sim.onnx");
 	}
+
+
 }
 
 Mat NanoDet::resize_image(Mat srcimg, int* newh, int* neww, int* top, int* left)
@@ -335,11 +337,9 @@ std::vector<cv::Rect> NanoDet::get_color_filtered_boxes(cv::Mat image, cv::Mat& 
 	cv::bitwise_and(image, image, skin_image, skin_mask);
 	std::vector<cv::Rect> bounding_boxes;
 
-	/*
-	std::std::vector<std::std::vector<cv::Point>> contours;
+	std::vector<std::vector<cv::Point>> contours;
 	cv::findContours(skin_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-	cout << "bounding_boxes" << endl;
 
 	for (const auto& contour : contours) {
 		cv::Rect bounding_box = cv::boundingRect(contour);
@@ -351,14 +351,17 @@ std::vector<cv::Rect> NanoDet::get_color_filtered_boxes(cv::Mat image, cv::Mat& 
 
 			bounding_box.width += 20;
 			bounding_box.height += 20;
-			if (bounding_box.x + bounding_box.width > skin_image.size[0]) bounding_box.width = skin_image.size[0] - bounding_box.x - 22;
-			if (bounding_box.y + bounding_box.height > skin_image.size[1]) bounding_box.height = skin_image.size[1] - bounding_box.y - 22;
+			if (bounding_box.x + bounding_box.width > skin_image.size[1]) bounding_box.width = skin_image.size[1] - bounding_box.x;
+			if (bounding_box.y + bounding_box.height > skin_image.size[0]) bounding_box.height = skin_image.size[0] - bounding_box.y;
 
 
 			bounding_boxes.push_back(bounding_box);
-			cout << bounding_box << endl;
 		}
 	}
-	*/
+	//std::string tmp_str = "skin_image.size : " + std::to_string(skin_image.size[0]) + "," + std::to_string(skin_image.size[1]);
+	//::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+
+	cv::rectangle(skin_image, Point(0, 0), Point(skin_image.size[1], skin_image.size[0]), Scalar(0, 125, 125), 1);
+
 	return bounding_boxes;
 }

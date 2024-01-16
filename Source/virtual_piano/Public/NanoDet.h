@@ -35,6 +35,8 @@ public:
 
 	std::vector<cv::Rect> get_color_filtered_boxes(cv::Mat image, cv::Mat& skin_image);
 
+
+
 private:
 	const int stride[3] = { 8, 16, 32 };
 	int input_shape[2];   //// height, width

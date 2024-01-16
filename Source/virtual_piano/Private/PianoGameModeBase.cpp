@@ -7,6 +7,7 @@ void APianoGameModeBase::BeginPlay()
 	Super::BeginPlay();
 	//capture = cv::VideoCapture(0);
 	capture = cv::VideoCapture("rtsp://192.168.0.181:8080/video/h264");
+	//capture = cv::VideoCapture("c:/nanodet_nail_test_crop.mp4");
 
 	if (!capture.isOpened())
 	{
@@ -18,6 +19,12 @@ void APianoGameModeBase::BeginPlay()
 		UE_LOG(LogTemp, Log, TEXT("Open Webcam Success"));
 	}
 
+
+
+	criteria = cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 0.03);
+
+
+	
 }
 
 
@@ -47,17 +54,72 @@ void APianoGameModeBase::Inference()
 
 
 	cv::Mat skin_image;
-	std::vector<cv::Rect> color_boxes = nanodet.get_color_filtered_boxes(image, skin_image);
-	std::vector<NanoDet::Bbox> bboxes;
-	//nanodet.detect(image, bboxes);
-	//nanodet.detect(skin_image);
+	color_boxes = nanodet.get_color_filtered_boxes(image, skin_image);
+	bboxes.clear();
 	nanodet.detect(image, bboxes);
 
+	for (const auto& color_rect : color_boxes) {
+		cv::rectangle(skin_image, Point(color_rect.x, color_rect.y), Point(color_rect.x + color_rect.width, color_rect.y + color_rect.height), Scalar(0, 0, 255), 2);
+	}
+
+	//remove boxes out side of color boxes
+	bboxes = getFullyContainedRects(color_boxes, bboxes);
+
+
+	// color_boxes가 2개면 x기준 정렬
+	if (color_boxes.size() == 2)
+		sort(color_boxes.begin(), color_boxes.end(), compareRectByX);;
+
+
+	// color_boxes와 bboxes 수에 따라 tracker 초기화
+	if (is_tracker_init == false)
+		InitTracker();
+
+
+	if (is_tracker_init)
+	{
+		std::vector<int> tracker_indexes;
+		std::vector<cv::Point2f> tracker_pt_prev;
+		std::vector<cv::Point2f> tracker_pt_next;
+
+		GetLatestPtsFromTracker(tracker_indexes, tracker_pt_prev);
+
+		cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+		cv::calcOpticalFlowPyrLK(prevGray, gray, tracker_pt_prev, tracker_pt_next, status, err, cv::Size(15, 15), 2, criteria);
+
+		// 코너 표시
+		for (size_t i = 0; i < tracker_pt_prev.size(); ++i)
+		{
+			if (status[i])
+			{
+				cv::Point2f prevPt = tracker_pt_prev[i];
+				cv::Point2f nextPt = tracker_pt_next[i];
+
+				cv::line(skin_image, prevPt, nextPt, cv::Scalar(0, 255, 0), 2);
+				cv::circle(skin_image, prevPt, 4, cv::Scalar(0, 0, 255), 1);
+				cv::circle(skin_image, nextPt, 2, cv::Scalar(255, 0, 0), -1);
+			}
+		}
+		// 다음 프레임 준비를 위한 변수 업데이트
+		gray.copyTo(prevGray);
+
+
+		// pt_next를 트래커 pts에 추가
+		UpdateNextPts(tracker_indexes, tracker_pt_next);
+
+	}
+
+	std::string tmp_str = "is_tracker_init : " + std::to_string(is_tracker_init);
+	cv::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+
+
+
+
+
+	//drawing detection result
 	for (auto const bbox : bboxes)
 	{
-
-		cv::rectangle(skin_image, Point(bbox.rect.x, bbox.rect.y), Point(bbox.rect.x + bbox.rect.width, bbox.rect.y + bbox.rect.height), Scalar(0, 0, 255), 3);
-		
+		cv::rectangle(skin_image, Point(bbox.rect.x, bbox.rect.y), Point(bbox.rect.x + bbox.rect.width, bbox.rect.y + bbox.rect.height), Scalar(255, 0, 0), 1);
 		string label = cv::format("%.2f", bbox.score);
 		int baseLine;
 		Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
@@ -65,6 +127,8 @@ void APianoGameModeBase::Inference()
 		putText(skin_image, label, Point(bbox.rect.x, ymin), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0, 255, 0), 1);
 
 	}
+
+
 
 
 
@@ -121,4 +185,144 @@ UTexture2D* APianoGameModeBase::MatToTexture2D(const cv::Mat InMat)
 	Texture->PostEditChange();
 	Texture->UpdateResource();
 	return Texture;
+}
+
+void APianoGameModeBase::InitTracker()
+{
+	if (color_boxes.size() == 0 || color_boxes.size() > 2)
+		return;
+
+	if (!((bboxes.size() == 5) || (bboxes.size() == 10)))
+		return;
+
+
+	cv::cvtColor(image, prevGray, cv::COLOR_BGR2GRAY);
+	capture.read(image);
+
+
+	int bbox_idx = 0;
+
+	for (const auto color_box : color_boxes)
+	{
+		for (const auto bbox : bboxes) {
+			cv::Point2f pt(bbox.rect.x + bbox.rect.width / 2, bbox.rect.y + bbox.rect.height / 2);
+			//p0.push_back(pt);
+
+			TrackerItem item;
+			item.bbox = bbox.rect;
+			item.pts.push_back(pt);
+			tracker[bbox_idx++] = item;
+
+		}
+
+	}
+
+
+
+	is_tracker_init = true;
+
+}
+
+
+std::vector<NanoDet::Bbox> APianoGameModeBase::getFullyContainedRects(const std::vector<cv::Rect>& big_boxes, const std::vector<NanoDet::Bbox>& small_boxes) {
+	std::vector<NanoDet::Bbox> result;
+
+	for (const auto& big_rect : big_boxes) {
+		for (const auto& bbox : small_boxes) {
+			if (big_rect.contains(bbox.rect.tl()) && big_rect.contains(bbox.rect.br())) {
+				result.push_back(bbox);
+			}
+		}
+	}
+
+	return result;
+}
+
+
+void APianoGameModeBase::UpdateTracker()
+{
+	std::vector<int> foundIndex;
+
+
+	for (const auto& bbox : bboxes)
+	{
+		bool foundMatch = false;
+		for (auto& tracked_item : tracker)
+		{
+			/*
+			// Calculate IOU between detected rectangle and tracked rectangle
+			float iou = calculateIOU(skinRegion, trackedRect.second.rect);
+
+			// If IOU is above a threshold, update the tracked rectangle
+			if (iou > 0.4) {
+				trackedRect.second.rect = skinRegion;
+				foundMatch = true;
+				foundIndex.push_back(trackedRect.first);
+				break;
+			}
+			*/
+		}
+
+		// If no match found, add new tracked rectangle
+		/*
+		if (!foundMatch) {
+			trackedRects[nextId].rect = skinRegion;
+			trackedRects[nextId].lifespan = 5;
+			trackedRects[nextId].isHandDetected = false;
+			nextId++;
+		}
+		*/
+	}
+	/*
+	//if trackedRect not found, lifespan -1
+	for (auto& trackedRect : trackedRects)
+	{
+		bool foundMatch = false;
+		for (auto& id : foundIndex)
+		{
+			if (id == trackedRect.first)
+			{
+				foundMatch = true;
+				trackedRect.second.lifespan = 5; //찾으면 5로 다시 설정
+				break;
+			}
+		}
+		if (foundMatch == false)
+		{
+			trackedRect.second.lifespan -= 1;
+		}
+	}
+
+	// lifespan == 0인 trackedRect 삭제
+	for (auto& trackedRect : trackedRects)
+	{
+		if (trackedRect.second.lifespan == 0)
+		{
+			trackedRects.erase(trackedRect.first);
+		}
+	}
+	return trackedRects;
+	*/
+
+}
+
+void APianoGameModeBase::GetLatestPtsFromTracker(std::vector<int>& indexes, std::vector<cv::Point2f>& pts)
+{
+	for (auto& tracked_item : tracker)
+	{
+		int id = tracked_item.first;
+		TrackerItem item = tracked_item.second;
+		pts.push_back(item.pts.back());
+		indexes.push_back(id);
+	}
+}
+
+void APianoGameModeBase::UpdateNextPts(std::vector<int> indexes, std::vector<cv::Point2f>& pts)
+{
+	for (auto& index : indexes)
+	{
+		tracker[index].pts.push_back(pts[index]);
+		if (tracker[index].pts.size() > tracker_pts_maxlen)
+			tracker[index].pts.erase(tracker[index].pts.begin());
+	}
 }
