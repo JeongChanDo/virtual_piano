@@ -37,12 +37,14 @@ public:
 	{
 		cv::Rect bbox;
 		std::vector<cv::Point2f> pts;
+		int lifespan = 30;
 	};
+	int max_lifespan = 30;
 
 	cv::VideoCapture capture;
 	cv::Mat bgraImage;
-	cv::Mat image;
-	NanoDet nanodet = NanoDet(320, 0.45, 0.3);
+	cv::Mat image, skin_image;
+	NanoDet nanodet = NanoDet(320, 0.4, 0.3);
 
 	UFUNCTION(BlueprintCallable)
 	void ReadFrame();
@@ -70,26 +72,42 @@ public:
 
 	std::map<int, TrackerItem> tracker;
 	int tracker_pts_maxlen = 10;
-
+	float tracker_dist_limit = 10;
+	int next_id = 0;
+	
 	void InitTracker();
 	std::vector<NanoDet::Bbox> getFullyContainedRects(const std::vector<cv::Rect>& big_boxes, const std::vector<NanoDet::Bbox>& small_boxes);
 	void UpdateTracker();
+
+
+
+	void UpdatePts(std::vector<int>& indexes, std::vector<cv::Point2f>& pts, std::vector<cv::Point2f>& pts_next);
 	void GetLatestPtsFromTracker(std::vector<int>& indexes, std::vector<cv::Point2f>& pts);
-	void UpdateNextPts(std::vector<int> indexes, std::vector<cv::Point2f>& pts);
+	std::vector<cv::Point2f> GetLatestPtsFromTracker();
+
+	void UpdateNextPtsToTracker(std::vector<int> indexes, std::vector<cv::Point2f>& pts);
 	void DrawTrackerPtsAndRects(cv::Mat& draw_image);
-	void ReInitTracker();
+
+	void UpdatePtsByBboxes();
+	void FindClosestPoint(NanoDet::Bbox bbox, int* id, float* dist);
+	float euclideanDist(cv::Point2f& a, cv::Point2f& b);
+	void TrackerLifespanUpdate();
+
 
 	std::vector<cv::Rect> color_boxes;
 	std::vector<NanoDet::Bbox> bboxes;
+	std::vector<int> correct_bboxes;
 
-	//meanshift
-	std::map<int, cv::Mat> roi_hists;
 
-	cv::TermCriteria meanshift_crit;
-	int meanshift_histSize[1] = { 180 };
-	int meanshift_channels[1] = { 0 };
-	float meanshift_range_[2] = { 0, 180 };
-	const float* meanshift_range[2] = { meanshift_range_ };
+	bool isProblem();
+	bool isPtsTooClose(std::vector<cv::Point2f>& pts);
+	bool isPtsTooFar(std::vector<cv::Point2f>& pts);
+	bool isOutsideOfCbox();
+	bool isOutsideOfBbox();
 
-	cv::Mat hsv, dst;
+	std::vector<cv::Point2f> getTrackerPtsInColorBox(cv::Rect color_box);
+	std::vector<cv::Rect> getRectsInColorBox(cv::Rect color_box);
+
+	void clear_tracker();
+
 };

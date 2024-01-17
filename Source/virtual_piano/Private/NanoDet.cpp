@@ -333,6 +333,7 @@ std::vector<cv::Rect> NanoDet::get_color_filtered_boxes(cv::Mat image, cv::Mat& 
 
 	cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9, 9));
 	cv::morphologyEx(skin_mask, skin_mask, cv::MORPH_OPEN, kernel);
+	skin_image.release();
 
 	cv::bitwise_and(image, image, skin_image, skin_mask);
 	std::vector<cv::Rect> bounding_boxes;
@@ -360,7 +361,6 @@ std::vector<cv::Rect> NanoDet::get_color_filtered_boxes(cv::Mat image, cv::Mat& 
 	}
 	//std::string tmp_str = "skin_image.size : " + std::to_string(skin_image.size[0]) + "," + std::to_string(skin_image.size[1]);
 	//::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
-
 	cv::rectangle(skin_image, Point(0, 0), Point(skin_image.size[1], skin_image.size[0]), Scalar(0, 125, 125), 1);
 
 	return bounding_boxes;
