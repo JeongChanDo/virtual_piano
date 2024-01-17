@@ -76,6 +76,7 @@ public:
 	void UpdateTracker();
 	void GetLatestPtsFromTracker(std::vector<int>& indexes, std::vector<cv::Point2f>& pts);
 	void UpdateNextPts(std::vector<int> indexes, std::vector<cv::Point2f>& pts);
+	void DrawTrackerPts(cv::Mat& draw_image);
 
 	std::vector<cv::Rect> color_boxes;
 	std::vector<NanoDet::Bbox> bboxes;

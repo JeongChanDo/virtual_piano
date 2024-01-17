@@ -78,12 +78,15 @@ void APianoGameModeBase::Inference()
 
 	if (is_tracker_init)
 	{
+		//기존과 동일한 id에 새 pt들을 할당하기 위한 변수들
 		std::vector<int> tracker_indexes;
 		std::vector<cv::Point2f> tracker_pt_prev;
 		std::vector<cv::Point2f> tracker_pt_next;
 
+		//트래커 최근 pt와 id 가져옴
 		GetLatestPtsFromTracker(tracker_indexes, tracker_pt_prev);
 
+		// 기존 pt에 매칭된 새 pt 가져옴
 		cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
 		cv::calcOpticalFlowPyrLK(prevGray, gray, tracker_pt_prev, tracker_pt_next, status, err, cv::Size(15, 15), 2, criteria);
 
@@ -107,10 +110,15 @@ void APianoGameModeBase::Inference()
 		// pt_next를 트래커 pts에 추가
 		UpdateNextPts(tracker_indexes, tracker_pt_next);
 
-	}
+		/*
+		std::string tmp_str = "tracker[0].pts.size() : " + std::to_string(tracker[0].pts.size());
+		cv::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+		*/
 
-	std::string tmp_str = "is_tracker_init : " + std::to_string(is_tracker_init);
-	cv::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+
+		// tracker_item의 pts drawing
+		DrawTrackerPts(skin_image);
+	}
 
 
 
@@ -212,15 +220,9 @@ void APianoGameModeBase::InitTracker()
 			item.bbox = bbox.rect;
 			item.pts.push_back(pt);
 			tracker[bbox_idx++] = item;
-
 		}
-
 	}
-
-
-
 	is_tracker_init = true;
-
 }
 
 
@@ -324,5 +326,20 @@ void APianoGameModeBase::UpdateNextPts(std::vector<int> indexes, std::vector<cv:
 		tracker[index].pts.push_back(pts[index]);
 		if (tracker[index].pts.size() > tracker_pts_maxlen)
 			tracker[index].pts.erase(tracker[index].pts.begin());
+	}
+}
+
+void APianoGameModeBase::DrawTrackerPts(cv::Mat& draw_image)
+{
+	for (auto& tracker_item : tracker)
+	{
+		std::vector<cv::Point2f> tracker_item_pts = tracker_item.second.pts;
+		for (size_t i = 0; i < tracker_item_pts.size() - 1; i++)
+		{
+			cv::Point2f prevPt = tracker_item_pts[i];
+			cv::Point2f nextPt = tracker_item_pts[i + 1];
+
+			cv::line(draw_image, prevPt, nextPt, cv::Scalar(255, 255, 0), 2);
+		}
 	}
 }
