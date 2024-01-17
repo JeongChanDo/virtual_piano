@@ -76,8 +76,20 @@ public:
 	void UpdateTracker();
 	void GetLatestPtsFromTracker(std::vector<int>& indexes, std::vector<cv::Point2f>& pts);
 	void UpdateNextPts(std::vector<int> indexes, std::vector<cv::Point2f>& pts);
-	void DrawTrackerPts(cv::Mat& draw_image);
+	void DrawTrackerPtsAndRects(cv::Mat& draw_image);
+	void ReInitTracker();
 
 	std::vector<cv::Rect> color_boxes;
 	std::vector<NanoDet::Bbox> bboxes;
+
+	//meanshift
+	std::map<int, cv::Mat> roi_hists;
+
+	cv::TermCriteria meanshift_crit;
+	int meanshift_histSize[1] = { 180 };
+	int meanshift_channels[1] = { 0 };
+	float meanshift_range_[2] = { 0, 180 };
+	const float* meanshift_range[2] = { meanshift_range_ };
+
+	cv::Mat hsv, dst;
 };

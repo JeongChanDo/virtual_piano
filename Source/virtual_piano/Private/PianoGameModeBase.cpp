@@ -24,7 +24,8 @@ void APianoGameModeBase::BeginPlay()
 	criteria = cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 0.03);
 
 
-	
+	meanshift_crit = cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 1);
+
 }
 
 
@@ -74,7 +75,8 @@ void APianoGameModeBase::Inference()
 	// color_boxes와 bboxes 수에 따라 tracker 초기화
 	if (is_tracker_init == false)
 		InitTracker();
-
+	//if ((bboxes.size() == 5) || (bboxes.size() == 10))
+	//	ReInitTracker();
 
 	if (is_tracker_init)
 	{
@@ -82,6 +84,10 @@ void APianoGameModeBase::Inference()
 		std::vector<int> tracker_indexes;
 		std::vector<cv::Point2f> tracker_pt_prev;
 		std::vector<cv::Point2f> tracker_pt_next;
+
+
+
+
 
 		//트래커 최근 pt와 id 가져옴
 		GetLatestPtsFromTracker(tracker_indexes, tracker_pt_prev);
@@ -110,14 +116,47 @@ void APianoGameModeBase::Inference()
 		// pt_next를 트래커 pts에 추가
 		UpdateNextPts(tracker_indexes, tracker_pt_next);
 
+
+
+
+
+
 		/*
 		std::string tmp_str = "tracker[0].pts.size() : " + std::to_string(tracker[0].pts.size());
 		cv::putText(skin_image, tmp_str, cv::Point(0, 150), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
 		*/
 
 
+
+		// meanshift rect update
+		cvtColor(image, hsv, COLOR_BGR2HSV);
+		for (auto& tracked_item : tracker)
+		{
+			int tracked_id = tracked_item.first;
+			
+			calcBackProject(&hsv, 1, meanshift_channels, roi_hists[tracked_id], dst, meanshift_range);
+			cv::Rect mean_shift_rect = tracked_item.second.bbox;
+
+			// apply meanshift to get the new location
+			meanShift(dst, mean_shift_rect, meanshift_crit);
+			tracker[tracked_id].bbox = mean_shift_rect;
+			//break;
+		}
+
+
+
+
+
+
+
+
+
 		// tracker_item의 pts drawing
-		DrawTrackerPts(skin_image);
+		DrawTrackerPtsAndRects(skin_image);
+
+
+
+
 	}
 
 
@@ -217,11 +256,41 @@ void APianoGameModeBase::InitTracker()
 			//p0.push_back(pt);
 
 			TrackerItem item;
-			item.bbox = bbox.rect;
+			item.bbox = cv::Rect(bbox.rect.x - 10, bbox.rect.y - 10, bbox.rect.width + 20, bbox.rect.height + 20);
+			//item.bbox = bbox.rect;
+
 			item.pts.push_back(pt);
 			tracker[bbox_idx++] = item;
 		}
 	}
+
+
+
+
+
+	//meanshift 준비
+	for (auto& tracked_item : tracker)
+	{
+		int tracked_id = tracked_item.first;
+
+		cv::Rect tracked_bbox = tracked_item.second.bbox;
+
+		cv::Mat roi = image(tracked_bbox);
+		cv::Mat hsv_roi;
+		cv::cvtColor(roi, hsv_roi, cv::COLOR_BGR2HSV);
+
+		cv::Mat mask;
+		inRange(hsv_roi, Scalar(0, 60, 32), Scalar(180, 255, 255), mask);
+
+		
+		Mat roi_hist;
+		cv::calcHist(&hsv_roi, 1, meanshift_channels, mask, roi_hist, 1, meanshift_histSize, meanshift_range);
+		normalize(roi_hist, roi_hist, 0, 255, NORM_MINMAX);
+		roi_hists[tracked_id] = roi_hist;
+	}
+
+
+
 	is_tracker_init = true;
 }
 
@@ -329,10 +398,11 @@ void APianoGameModeBase::UpdateNextPts(std::vector<int> indexes, std::vector<cv:
 	}
 }
 
-void APianoGameModeBase::DrawTrackerPts(cv::Mat& draw_image)
+void APianoGameModeBase::DrawTrackerPtsAndRects(cv::Mat& draw_image)
 {
 	for (auto& tracker_item : tracker)
 	{
+		cv::Rect tracker_item_rect = tracker_item.second.bbox;
 		std::vector<cv::Point2f> tracker_item_pts = tracker_item.second.pts;
 		for (size_t i = 0; i < tracker_item_pts.size() - 1; i++)
 		{
@@ -341,5 +411,38 @@ void APianoGameModeBase::DrawTrackerPts(cv::Mat& draw_image)
 
 			cv::line(draw_image, prevPt, nextPt, cv::Scalar(255, 255, 0), 2);
 		}
+		cv::rectangle(draw_image, 
+			Point(tracker_item_rect.x, tracker_item_rect.y),
+			Point(tracker_item_rect.x + tracker_item_rect.width,
+				tracker_item_rect.y + tracker_item_rect.height),
+			cv::Scalar(255, 255, 0), 2
+		);
 	}
+}
+
+
+void APianoGameModeBase::ReInitTracker()
+{
+	if (color_boxes.size() == 0 || color_boxes.size() > 2)
+		return;
+
+	cv::cvtColor(image, prevGray, cv::COLOR_BGR2GRAY);
+	capture.read(image);
+
+
+	int bbox_idx = 0;
+
+	for (const auto color_box : color_boxes)
+	{
+		for (const auto bbox : bboxes) {
+			cv::Point2f pt(bbox.rect.x + bbox.rect.width / 2, bbox.rect.y + bbox.rect.height / 2);
+			//p0.push_back(pt);
+
+			TrackerItem item;
+			item.bbox = bbox.rect;
+			item.pts.push_back(pt);
+			tracker[bbox_idx++] = item;
+		}
+	}
+	is_tracker_init = true;
 }
