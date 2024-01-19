@@ -30,7 +30,7 @@ void APianoGameModeBase::BeginPlay()
 
 void APianoGameModeBase::ReadFrame()
 {
-	UE_LOG(LogTemp, Log, TEXT("ReadFrame is called"));
+	//UE_LOG(LogTemp, Log, TEXT("ReadFrame is called"));
 
 	if (!capture.isOpened())
 	{
@@ -72,8 +72,6 @@ void APianoGameModeBase::Inference()
 	// color_boxes와 bboxes 수에 따라 tracker 초기화
 	if (is_tracker_init == false)
 		InitTracker();
-	//if ((bboxes.size() == 5) || (bboxes.size() == 10))
-	//	ReInitTracker();
 
 	if (is_tracker_init)
 	{
@@ -95,14 +93,38 @@ void APianoGameModeBase::Inference()
 
 		// pt_next를 트래커 pts에 추가
 		UpdateNextPtsToTracker(tracker_indexes, tracker_pt_next);
-
 		//UpdateTracker();
 
 
-		correct_bboxes.clear();
+		if (isTrain)
+			saveCsvForTrain();
+
+
+
+
+		correct_index_map.clear();
 		UpdatePtsByBboxes();
 
+		/*
+		// 1, 2, 4, 5 exist
+		// 3 not exist
+		
+		for (auto& tracker_idx : tracker_indexes)
+		{
+			//if pt is in bbox, pass
+			if (correct_index_map.find(tracker_idx) != correct_index_map.end())
+				continue;
 
+			bboxes[tracker_idx].rect;
+
+
+			for (auto& bbox : bboxes)
+			{
+				cv::Point2f pt(bbox.rect.x + bbox.rect.width / 2, bbox.rect.y + bbox.rect.height / 2);
+			}
+
+		}
+		*/
 
 
 
@@ -111,7 +133,8 @@ void APianoGameModeBase::Inference()
 
 		// tracker_item의 pts drawing
 		DrawTrackerPtsAndRects(skin_image);
-
+		
+		PredictTracker();
 
 
 
@@ -352,6 +375,9 @@ void APianoGameModeBase::UpdatePts(std::vector<int>& tracker_indexes, std::vecto
 			cv::line(skin_image, prevPt, nextPt, cv::Scalar(0, 255, 0), 2);
 			cv::circle(skin_image, prevPt, 4, cv::Scalar(0, 0, 255), 1);
 			cv::circle(skin_image, nextPt, 2, cv::Scalar(255, 0, 0), -1);
+			
+			if (isTrain)
+				tracker[i].train_pt.push_back(nextPt);
 		}
 	}
 	// 다음 프레임 준비를 위한 변수 업데이트
@@ -407,6 +433,8 @@ void APianoGameModeBase::DrawTrackerPtsAndRects(cv::Mat& draw_image)
 			cv::Point2f nextPt = tracker_item_pts[i + 1];
 
 			cv::line(draw_image, prevPt, nextPt, cv::Scalar(255, 255, 0), 2);
+
+
 		}
 
 		string label = cv::format("id(%d) : %d", tracker_item.first, tracker_item.second.lifespan);
@@ -427,6 +455,7 @@ void APianoGameModeBase::DrawTrackerPtsAndRects(cv::Mat& draw_image)
 
 void APianoGameModeBase::UpdatePtsByBboxes()
 {
+	int bbox_idx = 0;
 	for (auto bbox : bboxes)
 	{
 		int tracker_id;
@@ -435,17 +464,26 @@ void APianoGameModeBase::UpdatePtsByBboxes()
 
 		FindClosestPoint(bbox, &tracker_id, &dist);
 
-		if (dist < tracker_dist_limit)
-			correct_bboxes.push_back(tracker_id);
-
-
-		// if pt far replace with bbox centroid
-		if (dist >= tracker_dist_limit && dist < tracker_dist_limit * 3)
+		/*
+		if (dist < tracker_dist_limit * 3)
 		{
 			tracker[tracker_id].pts.pop_back();
 			tracker[tracker_id].pts.push_back(pt);
-			correct_bboxes.push_back(tracker_id);
 		}
+		*/
+		
+		if (dist < tracker_dist_limit)
+			correct_index_map[tracker_id] = tracker_id;
+
+
+		// if pt far replace with bbox centroid
+		if (dist >= tracker_dist_limit && dist < tracker_dist_limit * 2)
+		{
+			tracker[tracker_id].pts.pop_back();
+			tracker[tracker_id].pts.push_back(pt);
+			correct_index_map[tracker_id] = tracker_id;
+		}
+		bbox_idx++;
 	}
 }
 
@@ -491,7 +529,7 @@ void APianoGameModeBase::TrackerLifespanUpdate()
 
 
 
-		if (std::find(correct_bboxes.begin(), correct_bboxes.end(), tracker_item.first) != correct_bboxes.end()) {
+		if (std::find(correct_tracker_id.begin(), correct_tracker_id.end(), tracker_item.first) != correct_tracker_id.end()) {
 			tracker_item.second.lifespan = 40;
 		}
 	}
@@ -509,12 +547,13 @@ void APianoGameModeBase::TrackerLifespanUpdate()
 bool APianoGameModeBase::isProblem()
 {
 	bool isProblem = false;
-
-	//is num tracker item and bbox difference
+	//is num tracker item and bbox different
 	if ((bboxes.size() == 5) || (bboxes.size() == 10))
 	{
+		// 2 hand -> 1hand
 		if (bboxes.size() == 5 && tracker.size() == 10)
 			return true;
+		// 1 hand -> two hand
 		else if (bboxes.size() == 10 && tracker.size() == 5)
 			return true;
 	}
@@ -666,4 +705,298 @@ void APianoGameModeBase::clear_tracker()
 	for (auto& tracker_item : tracker)
 		tracker_item.second.pts.clear();
 	tracker.clear();
+}
+
+
+void APianoGameModeBase::saveCsvForTrain()
+{
+	std::string dist_size = "tracker[0].train_pt.size() : " + std::to_string(tracker[0].train_pt.size());
+	cv::putText(skin_image, dist_size, cv::Point(0, 80), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+
+	//to save train_pt of tracker seperatly as csv file
+	if (isSaved == false && tracker[0].train_pt.size() == 600)
+	{
+		UE_LOG(LogTemp, Log, TEXT("tracker try"));
+		for (auto& tracker_item : tracker)
+		{
+			std::string filename = "c:/Users/addinedu/hand_dist_" + std::to_string(tracker_item.first) + ".csv";
+			savePointsToCsv(tracker_item.second.train_pt, 10, filename);
+
+			//saveToCSV(tracker_item.second.train_pt, filename, 10);
+			std::string txt = filename + "  saved";
+			cv::putText(skin_image, txt, cv::Point(0, 100), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(125, 125, 125), 2);
+			UE_LOG(LogTemp, Log, TEXT("tracker saved"));
+		}
+		isSaved = true;
+	}
+}
+
+void APianoGameModeBase::savePointsToCsv(const std::vector<cv::Point2f>& pts_train, int subVectorSize, const std::string& filename)
+{
+	std::ofstream file(filename);
+
+	if (!file.is_open())
+	{
+		std::cout << "Failed to open the file." << std::endl;
+		return;
+	}
+
+
+	int numSubVectors = pts_train.size() - subVectorSize + 1;
+	for (int i = 0; i < numSubVectors; i++) {
+		std::vector<cv::Point2f> pointSet;
+		for (int j = 0; j < subVectorSize; j++) {
+			pointSet.push_back(pts_train[i + j]);
+		}
+
+		cv::Scalar mean, variance;
+		cv::meanStdDev(pointSet, mean, variance);
+
+
+		for (const auto& point : pointSet)
+		{
+			file << (point.x - mean[0]) / variance[0] << "," << (point.y - mean[1]) / variance[1] << ",";
+		}
+
+
+		/*
+		float total_dist = 0;
+
+		for (int j = 0; j < subVectorSize; j++) {
+			total_dist += euclideanDist(pointSet[j], pointSet[j + 1]);
+		}
+		*/
+
+		//file << mean[0] << "," << mean[1] << "," << variance[0] << "," << variance[1] << ",";
+		//file << total_dist << "," << variance[0] << "," << variance[1] << ",";
+		//file << variance[0] << "," << variance[1] << ",";
+		double norm = cv::norm(variance);
+		file << norm << ",";
+
+		std::vector<float> dists;
+		for (int j = 0; j < subVectorSize - 1; j++) {
+			float tmp_dist = euclideanDist(pointSet[j], pointSet[j + 1]);
+			dists.push_back(tmp_dist);
+			//file << tmp_dist << ",";
+		}
+
+
+		std::vector<float> tmp_dists;
+		float dist_sum_front;
+		for (int j = 0; j < 3; j++)
+		{
+			tmp_dists.push_back(dists[j]);
+		}
+		dist_sum_front = getSum(tmp_dists);
+
+		file << dist_sum_front << ",";
+		tmp_dists.clear();
+		float dist_sum_back;
+
+		for (int j = 5; j < 8; j++)
+		{
+			tmp_dists.push_back(dists[j]);
+		}
+		dist_sum_back = getSum(tmp_dists);
+		file << dist_sum_back << ",";
+		file << dist_sum_front / dist_sum_back << ",";
+
+		float mid_points_dist = getMidPointsDistance(pointSet);
+		file << mid_points_dist << ",";
+
+		/*
+		for (const auto& point : pointSet)
+		{
+			file << (point.x - mean[0]) / variance[0] << "," << (point.y - mean[1]) / variance[1] << ",";
+		}
+		*/
+		file << std::endl;
+	}
+	file.close();
+}
+
+float APianoGameModeBase::getVariance(const std::vector<float>& dists)
+{
+	// 입력값의 개수
+	int n = dists.size();
+
+	// 입력값의 합 계산
+	float sum = 0.0f;
+	for (const auto& dist : dists) {
+		sum += dist;
+	}
+
+	// 입력값의 평균 계산
+	float mean = sum / n;
+
+	// 분산 계산
+	float variance = 0.0f;
+	for (const auto& dist : dists) {
+		float diff = dist - mean;
+		variance += (diff * diff);
+	}
+	variance /= n;
+
+	return variance;
+}
+
+float APianoGameModeBase::getSum(const std::vector<float>& dists)
+{
+	float sum = 0.0f;
+	for (const auto& dist : dists) {
+		sum += dist;
+	}
+	return sum;
+}
+
+float APianoGameModeBase::getMidPointsDistance(const std::vector<cv::Point2f>& pts_train)
+{
+	cv::Point2f mid_pt1, mid_pt2;
+
+	// 첫 번째 중심점 계산
+	for (int i = 0; i < 3; i++) {
+		mid_pt1 += pts_train[i];
+	}
+	mid_pt1 /= 3;
+
+	// 두 번째 중심점 계산
+	for (int i = 7; i < 10; i++) {
+		mid_pt2 += pts_train[i];
+	}
+	mid_pt2 /= 3;
+
+	// 중심점 간의 거리 계산
+	float distance = euclideanDist(mid_pt1, mid_pt2);
+
+	return distance;
+}
+
+
+void APianoGameModeBase::PredictTracker()
+{
+	for (auto& tracker_item : tracker)
+	{
+		if (tracker_item.second.pts.size() != tracker_pts_maxlen)
+			continue;
+		cv::Mat prediction_data = GetMLDataFromTracker(tracker_item.first);
+		int prediction = int(MLModel->predict(prediction_data));
+
+		tracker_item.second.preds.push_back(prediction);
+		if (tracker_item.second.preds.size() > max_pres_len)
+		{
+			tracker_item.second.preds.erase(tracker_item.second.preds.begin());
+
+			string result;
+			switch (prediction)
+			{
+				case 1:
+					result = " move";
+					break;
+				case 2:
+					result = " stop";
+					break;
+				case 3:
+					result = " click";
+					break;
+				case 4:
+					result = " M>S";
+					break;
+				case 5:
+					result = " S>M";
+					break;
+
+			}
+			cv::Point pt = tracker_item.second.pts.back();
+			cv::putText(skin_image, result, pt, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(10, 10, 10), 2);
+		}
+	}
+}
+
+
+int APianoGameModeBase::findMostFrequent(std::vector<int>& preds) {
+	std::unordered_map<int, int> countMap;
+
+	// dists에서 각 int 값의 빈도수를 세기 위해 해시 맵을 사용합니다.
+	for (int pred : preds) {
+		countMap[pred]++;
+	}
+
+	int mostFrequent = 0;
+	int maxCount = 0;
+
+	// 해시 맵을 순회하면서 가장 빈도가 높은 값을 찾습니다.
+	for (auto& pair : countMap) {
+		if (pair.second > maxCount) {
+			mostFrequent = pair.first;
+			maxCount = pair.second;
+		}
+	}
+
+	return mostFrequent;
+}
+
+
+cv::Mat APianoGameModeBase::GetMLDataFromTracker(int index)
+{
+	std::vector<cv::Point2f> pts = tracker[index].pts;
+
+	//std::vector<cv::Point2f> pointSet;
+	std::vector<float> input_vector;
+
+
+	cv::Scalar mean, variance;
+	cv::meanStdDev(pts, mean, variance);
+
+	for (const auto& point : pts)
+	{
+		input_vector.push_back((point.x - mean[0]) / variance[0]);
+		input_vector.push_back((point.y - mean[1]) / variance[1]);
+	}
+
+	double norm = cv::norm(variance);
+	input_vector.push_back(norm);
+
+	std::vector<float> dists;
+	for (int j = 0; j < tracker_pts_maxlen - 1; j++) {
+		float tmp_dist = euclideanDist(pts[j], pts[j + 1]);
+		dists.push_back(tmp_dist);
+	}
+
+
+	std::vector<float> tmp_dists;
+	float dist_sum_front;
+	for (int j = 0; j < 3; j++)
+	{
+		tmp_dists.push_back(dists[j]);
+	}
+	dist_sum_front = getSum(tmp_dists);
+	input_vector.push_back(dist_sum_front);
+
+
+	tmp_dists.clear();
+	float dist_sum_back;
+
+	for (int j = 5; j < 8; j++)
+	{
+		tmp_dists.push_back(dists[j]);
+	}
+	dist_sum_back = getSum(tmp_dists);
+	input_vector.push_back(dist_sum_back);
+	input_vector.push_back(dist_sum_front / dist_sum_back);
+
+
+	float mid_points_dist = getMidPointsDistance(pts);
+	input_vector.push_back(mid_points_dist);
+
+
+	cv::Mat inputMat(1, input_vector.size(), CV_32F);
+
+	// 입력값 복사
+	memcpy(inputMat.data, input_vector.data(), input_vector.size() * sizeof(float));
+
+	return inputMat;
+}
+
+bool APianoGameModeBase::containsInt(std::vector<int>& vals, int a) {
+	return std::find(vals.begin(), vals.end(), a) != vals.end();
 }

@@ -8,6 +8,8 @@
 #include "PostOpenCVHeaders.h"
 #include "NanoDet.h"
 #include <map>
+#include <iostream>
+#include <fstream>
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
@@ -37,9 +39,13 @@ public:
 	{
 		cv::Rect bbox;
 		std::vector<cv::Point2f> pts;
+		std::vector<cv::Point2f> train_pt;
+		std::vector<int> preds;
+		bool isPtOutofBox;
 		int lifespan = 30;
 	};
 	int max_lifespan = 30;
+	int max_pres_len = 3;
 
 	cv::VideoCapture capture;
 	cv::Mat bgraImage;
@@ -96,8 +102,10 @@ public:
 
 	std::vector<cv::Rect> color_boxes;
 	std::vector<NanoDet::Bbox> bboxes;
-	std::vector<int> correct_bboxes;
+	std::vector<int> correct_tracker_id;
+	std::vector<int> correct_bbox_id;
 
+	std::map<int, int> correct_index_map;
 
 	bool isProblem();
 	bool isPtsTooClose(std::vector<cv::Point2f>& pts);
@@ -109,5 +117,22 @@ public:
 	std::vector<cv::Rect> getRectsInColorBox(cv::Rect color_box);
 
 	void clear_tracker();
+
+
+	//for ml data
+	bool isTrain = false;
+	bool isSaved = false;
+	void saveCsvForTrain();
+	void savePointsToCsv(const std::vector<cv::Point2f>& pts_train, int subVectorSize, const std::string& filename);
+	float getVariance(const std::vector<float>& dists);
+	float getSum(const std::vector<float>& dists);
+	float getMidPointsDistance(const std::vector<cv::Point2f>& pts_train);
+	// 저장된 모델 로드
+	cv::Ptr<cv::ml::RTrees> MLModel = cv::Algorithm::load<cv::ml::RTrees>("c:/240119_02_pts_finger_rftree.yml");
+	void PredictTracker();
+	int findMostFrequent(std::vector<int>& dists);
+	
+	cv::Mat GetMLDataFromTracker(int index);
+	bool containsInt(std::vector<int>& vals, int a);
 
 };
