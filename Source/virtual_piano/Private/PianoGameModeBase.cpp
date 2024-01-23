@@ -73,6 +73,7 @@ void APianoGameModeBase::Inference()
 	if (is_tracker_init == false)
 		InitTracker();
 
+	/*
 	if (is_tracker_init)
 	{
 		//기존과 동일한 id에 새 pt들을 할당하기 위한 변수들
@@ -105,28 +106,6 @@ void APianoGameModeBase::Inference()
 		correct_index_map.clear();
 		UpdatePtsByBboxes();
 
-		/*
-		// 1, 2, 4, 5 exist
-		// 3 not exist
-		
-		for (auto& tracker_idx : tracker_indexes)
-		{
-			//if pt is in bbox, pass
-			if (correct_index_map.find(tracker_idx) != correct_index_map.end())
-				continue;
-
-			bboxes[tracker_idx].rect;
-
-
-			for (auto& bbox : bboxes)
-			{
-				cv::Point2f pt(bbox.rect.x + bbox.rect.width / 2, bbox.rect.y + bbox.rect.height / 2);
-			}
-
-		}
-		*/
-
-
 
 
 
@@ -142,8 +121,7 @@ void APianoGameModeBase::Inference()
 
 
 
-
-
+	*/
 	//drawing detection result
 	for (auto const bbox : bboxes)
 	{
